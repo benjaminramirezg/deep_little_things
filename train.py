@@ -12,17 +12,18 @@ import json
 
 # EMBEDDINGS
 
-embeddings_model = KeyedVectors.load_word2vec_format('embeddings.bin', binary=True, unicode_errors='ignore')
+embeddings_model = None # KeyedVectors.load_word2vec_format('embeddings.bin', binary=True, unicode_errors='ignore')
 
 # SOCKET CONFIG
 
+clientsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 host = 'localhost'
 port = 1234
 buf = 1000000
 
 # NN HYPERPARAMETERS
 
-num_epochs = 50
+num_epochs = 100
 batch_size=50
 input_size=300
 output_size=6
@@ -51,7 +52,6 @@ def _vectorize_token_local(token):
 def _vectorize_token_socket(token):
     
     try:
-        clientsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         clientsocket.connect((host, port))
         clientsocket.send(token.encode())
         data=clientsocket.recv(buf).decode()
@@ -148,6 +148,7 @@ print('')
 # STARTING SESSION
 
 session=tf.InteractiveSession()
+saver = tf.train.Saver(max_to_keep=4)
 
 # RUNNING SESSION
 
@@ -162,10 +163,11 @@ for epoch in range(num_epochs):
         texts_in_batch, labels_in_batch = _get_input_and_labels_in_batch(training_set,step) 
         _, loss_ = session.run([train_op,loss], {tf_input: texts_in_batch, tf_output: labels_in_batch})
 
-        if step % 1 == 0:
+        if step % 50 == 0:
 
             accuracy_, _ = session.run(accuracy, feed_dict={tf_input: texts_in_batch, tf_output: labels_in_batch})
             print(str(step) + ' batches (Loss: '+ str(loss_) + ' Accuracy: ' + str(accuracy_) + ')')
+            saver.save(session, './deep_little_things_model', global_step=step)
 
 
 if not embeddings_model:
