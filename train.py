@@ -17,7 +17,7 @@ output_model_file = './deep_little_things_model'
 
 # EMBEDDINGS
 
-embeddings_model = None # KeyedVectors.load_word2vec_format(embeddings_file, binary=True, unicode_errors='ignore')
+embeddings_model = KeyedVectors.load_word2vec_format(embeddings_file, binary=True, unicode_errors='ignore')
 
 # SOCKET CONFIG
 
@@ -28,8 +28,8 @@ buf = 1000000
 
 # NN HYPERPARAMETERS
 
-num_epochs = 100
-batch_size=50
+num_epochs = 50
+batch_size=100
 input_size=300
 output_size=6
 hidden_state_size=64
@@ -184,10 +184,17 @@ for epoch in range(num_epochs):
             print(str(step) + ' batches (Loss: '+ str(loss_) + ')')
             saver.save(session, output_model_file, global_step=step)
 
-    texts_in_eval, labels_in_eval = _get_input_and_labels_in_batch(evaluation_set,0,len(evaluation_set))
-    accuracy_, _ = session.run(accuracy, feed_dict={tf_input: texts_in_eval, tf_output: labels_in_eval})
-    print(str(step) + ' batches ( Accuracy: ' + str(accuracy_) + ')')
-            
+"""
+    print('Getting accuracy in epoch ' + str(epoch))
+    accuracies=[]
+    for step in range(evaluation_set.shape[0]//batch_size):
+        texts_in_eval, labels_in_eval = _get_input_and_labels_in_batch(evaluation_set,step,batch_size)
+        accuracy_, _ = session.run(accuracy, feed_dict={tf_input: texts_in_eval, tf_output: labels_in_eval})
+        accuracies.append(accuracy_)
+        print('Step ' + str(step) + '. Accuracy ' + str(accuracy_), end='\r')
+    accuracy_mean=np.mean(accuracies)
+    print(str(epoch) + ' epochs ( Accuracy: ' + str(accuracy_mean) + ')')
+"""            
 
 if not embeddings_model:
     clientsocket.close()
