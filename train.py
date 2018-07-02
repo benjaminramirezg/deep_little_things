@@ -9,10 +9,15 @@ from gensim.models import KeyedVectors
 import socket
 import json
 
+# FILES
+
+embeddings_file = './embeddings.bin'
+dataset_file = './train.csv'
+output_model_file = './deep_little_things_model'
 
 # EMBEDDINGS
 
-embeddings_model = None # KeyedVectors.load_word2vec_format('embeddings.bin', binary=True, unicode_errors='ignore')
+embeddings_model = None # KeyedVectors.load_word2vec_format(embeddings_file, binary=True, unicode_errors='ignore')
 
 # SOCKET CONFIG
 
@@ -62,12 +67,12 @@ def _vectorize_token_socket(token):
         vector=np.zeros(input_size)
     return vector
 
-def _vectorize_texts(tokenized_texts):
+def _vectorize_texts(tokenized_texts,batch_size_):
     max_len=_max_number_of_tokens(tokenized_texts)
     vectorized_texts_by_timestep=[]    
     for timestep_i in range(0, max_len):
         batchitem=[]                    
-        for batchitem_i in range(0, batch_size):
+        for batchitem_i in range(0, batch_size_):
             try:
                 token=tokenized_texts[batchitem_i][timestep_i]
                 vector=_vectorize_token(token)
@@ -92,27 +97,39 @@ def _max_number_of_tokens(tokenized_texts):
             max_len=len(tokenized_text)
     return max_len
 
-def _get_texts_in_batch(training_set,step):
+def _get_texts_in_batch(training_set,step,batch_size_):
     try:
-        texts_in_batch=training_set.iloc[step*batch_size:(step+1)*batch_size,1]
+        texts_in_batch=training_set.iloc[step*batch_size_:(step+1)*batch_size_,1]
     except:
-        texts_in_batch=training_set.iloc[step*batch_size:,1]
+        texts_in_batch=training_set.iloc[step*batch_size_:,1]
     return texts_in_batch.tolist()
 
-def _get_labels_in_batch(training_set,step):
+def _get_labels_in_batch(training_set,step,batch_size_):
     try:
-        labels_in_batch=training_set.iloc[step*batch_size:(step+1)*batch_size,2:]
+        labels_in_batch=training_set.iloc[step*batch_size_:(step+1)*batch_size_,2:]
     except:
-        labels_in_batch=training_set.iloc[step*batch_size:,2:]
+        labels_in_batch=training_set.iloc[step*batch_size_:,2:]
     return labels_in_batch.values.tolist()
 
 
-def _get_input_and_labels_in_batch(training_set,step):
-    texts_in_batch=_get_texts_in_batch(training_set,step)
+def _get_input_and_labels_in_batch(training_set,step,batch_size_):
+    texts_in_batch=_get_texts_in_batch(training_set,step,batch_size_)
     tokenized_texts=_tokenize_texts(texts_in_batch)
-    vectorized_texts=_vectorize_texts(tokenized_texts)
-    labels_in_batch=_get_labels_in_batch(training_set,step)
+    vectorized_texts=_vectorize_texts(tokenized_texts,batch_size_)
+    labels_in_batch=_get_labels_in_batch(training_set,step,batch_size_)
     return vectorized_texts, labels_in_batch
+
+
+def _shuffle_dataset(dataset):
+    dataset = dataset.sample(frac=1).reset_index(drop=True)
+    return dataset
+
+def split_train_eval_dataset(dataset, evaluation_set_percentage = 20 ):
+    dataset=_shuffle_dataset(dataset)
+    training_set_n = int(round((((100 - evaluation_set_percentage) * len(dataset)) // 100)))    
+    training_set=dataset.head(training_set_n) 
+    evaluation_set=dataset.tail(len(dataset) - training_set_n)
+    return(training_set,evaluation_set)
 
 ############
 ### MAIN ###
@@ -131,18 +148,17 @@ output = tf.layers.dense(outputs[-1,:,:], output_size)
 
 loss = tf.losses.sigmoid_cross_entropy(multi_class_labels=tf_output, logits=output)
 train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
-
 accuracy = tf.metrics.accuracy(labels=tf_output, predictions=tf.to_int32(tf.sigmoid(output) > threshold ))
-recall= tf.metrics.recall_at_thresholds(labels=tf_output, predictions=tf.to_int32(tf.sigmoid(output) > threshold ), thresholds=[threshold] )
-precision= tf.metrics.precision_at_thresholds(labels=tf_output, predictions=tf.to_int32(tf.sigmoid(output) > threshold ), thresholds=[threshold] )
 
 init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
 
 # READING INPUT
 
-training_set = pd.read_csv("./train/train.csv")
+dataset = pd.read_csv(dataset_file)
+training_set, evaluation_set = split_train_eval_dataset(dataset)
 print('')
 print(str(training_set.shape[0]) + ' items in training set')
+print(str(evaluation_set.shape[0]) + ' items in evaluation set')
 print('')
 
 # STARTING SESSION
@@ -160,15 +176,18 @@ for epoch in range(num_epochs):
     print('==========')    
     for step in range(training_set.shape[0]//batch_size):
 
-        texts_in_batch, labels_in_batch = _get_input_and_labels_in_batch(training_set,step) 
+        split_train_eval_dataset
+        texts_in_batch, labels_in_batch = _get_input_and_labels_in_batch(training_set,step,batch_size) 
         _, loss_ = session.run([train_op,loss], {tf_input: texts_in_batch, tf_output: labels_in_batch})
 
         if step % 50 == 0:
+            print(str(step) + ' batches (Loss: '+ str(loss_) + ')')
+            saver.save(session, output_model_file, global_step=step)
 
-            accuracy_, _ = session.run(accuracy, feed_dict={tf_input: texts_in_batch, tf_output: labels_in_batch})
-            print(str(step) + ' batches (Loss: '+ str(loss_) + ' Accuracy: ' + str(accuracy_) + ')')
-            saver.save(session, './deep_little_things_model', global_step=step)
-
+    texts_in_eval, labels_in_eval = _get_input_and_labels_in_batch(evaluation_set,0,len(evaluation_set))
+    accuracy_, _ = session.run(accuracy, feed_dict={tf_input: texts_in_eval, tf_output: labels_in_eval})
+    print(str(step) + ' batches ( Accuracy: ' + str(accuracy_) + ')')
+            
 
 if not embeddings_model:
     clientsocket.close()
