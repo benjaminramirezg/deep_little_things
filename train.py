@@ -17,7 +17,7 @@ output_model_file = './deep_little_things_model'
 
 # EMBEDDINGS
 
-embeddings_model = KeyedVectors.load_word2vec_format(embeddings_file, binary=True, unicode_errors='ignore')
+embeddings_model = None #KeyedVectors.load_word2vec_format(embeddings_file, binary=True, unicode_errors='ignore')
 
 # SOCKET CONFIG
 
@@ -139,16 +139,19 @@ def split_train_eval_dataset(dataset, evaluation_set_percentage = 20 ):
 
 tf.reset_default_graph()
 
-tf_input=tf.placeholder(tf.float32,shape=[None,None,input_size])
-tf_output=tf.placeholder(shape=[None,output_size], dtype=tf.float32)
+tf_input=tf.placeholder(shape=[None,None,input_size], dtype=tf.float32, name='tf_input')
+tf_output=tf.placeholder(shape=[None,output_size], dtype=tf.float32, name='tf_output')
 
 rnn_cell=tf.contrib.rnn.BasicLSTMCell(num_units=64)
 outputs, (h_c, h_n) = tf.nn.dynamic_rnn(rnn_cell, tf_input, initial_state=None, dtype=tf.float32, time_major=True)
-output = tf.layers.dense(outputs[-1,:,:], output_size)
+output=tf.layers.dense(outputs[-1,:,:], output_size)
+op_predictions = tf.to_int32(tf.sigmoid(output), name='op_predictions')
 
 loss = tf.losses.sigmoid_cross_entropy(multi_class_labels=tf_output, logits=output)
 train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
-accuracy = tf.metrics.accuracy(labels=tf_output, predictions=tf.to_int32(tf.sigmoid(output) > threshold ))
+accuracy = tf.metrics.accuracy(labels=tf_output, predictions=op_predictions)
+precision = tf.metrics.precision(labels=tf_output, predictions=op_predictions)
+recall = tf.metrics.recall(labels=tf_output, predictions=op_predictions)
 
 init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
 
@@ -156,10 +159,14 @@ init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initial
 
 dataset = pd.read_csv(dataset_file)
 training_set, evaluation_set = split_train_eval_dataset(dataset)
+
+print('==================')
+print('= LOADED DATASET =')
+print('==================')
 print('')
+
 print(str(training_set.shape[0]) + ' items in training set')
 print(str(evaluation_set.shape[0]) + ' items in evaluation set')
-print('')
 
 # STARTING SESSION
 
@@ -170,31 +177,51 @@ saver = tf.train.Saver(max_to_keep=4)
 
 session.run(init_op)
 
+# TRAINING
+
+print('')
+print('============')
+print('= TRAINING =')
+print('============')
+print('')
+
 for epoch in range(num_epochs):
-    print('==========')    
-    print(str(epoch) + ' epochs')
-    print('==========')    
+    print('=== ' + str(epoch) + ' epochs ===')
+    print('')    
     for step in range(training_set.shape[0]//batch_size):
 
-        split_train_eval_dataset
         texts_in_batch, labels_in_batch = _get_input_and_labels_in_batch(training_set,step,batch_size) 
         _, loss_ = session.run([train_op,loss], {tf_input: texts_in_batch, tf_output: labels_in_batch})
 
         if step % 50 == 0:
             print(str(step) + ' batches (Loss: '+ str(loss_) + ')')
-            saver.save(session, output_model_file, global_step=step)
+            saver.save(session, output_model_file)
 
-"""
-    print('Getting accuracy in epoch ' + str(epoch))
-    accuracies=[]
-    for step in range(evaluation_set.shape[0]//batch_size):
-        texts_in_eval, labels_in_eval = _get_input_and_labels_in_batch(evaluation_set,step,batch_size)
-        accuracy_, _ = session.run(accuracy, feed_dict={tf_input: texts_in_eval, tf_output: labels_in_eval})
-        accuracies.append(accuracy_)
-        print('Step ' + str(step) + '. Accuracy ' + str(accuracy_), end='\r')
-    accuracy_mean=np.mean(accuracies)
-    print(str(epoch) + ' epochs ( Accuracy: ' + str(accuracy_mean) + ')')
-"""            
+# EVALUATION
+
+print('')
+print('==============')
+print('= EVALUATION =')
+print('==============')
+print('')
+
+precisions, recalls = [], []
+for step in range(evaluation_set.shape[0]//batch_size):
+    texts_in_eval, labels_in_eval = _get_input_and_labels_in_batch(evaluation_set,step,batch_size)
+    precision_, _ = session.run(precision, feed_dict={tf_input: texts_in_eval, tf_output: labels_in_eval})
+    recall_, _ = session.run(recall, feed_dict={tf_input: texts_in_eval, tf_output: labels_in_eval})
+    precisions.append(precision_)
+    recalls.append(recall_)
+    if step % 50 == 0:
+        print(str(step) + ' batches (Precision: ' + str(precision_) + ' Recall: ' + str(recall_) + ')')
+
+procesion_ = np.mean(precisions)
+recall_ = np.mean(recalls)
+
+print('')
+print('Precision (mean) ' + str(precision_) + ' Recall (mean) ' + str(recall_))
+
+#####
 
 if not embeddings_model:
     clientsocket.close()
