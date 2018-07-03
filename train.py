@@ -10,9 +10,33 @@ num_epochs = 50
 batch_size=100
 input_size=300
 output_size=6
+hidden_states_sizes=[128,64]
 hidden_state_size=64
 learning_rate=0.01
 threshold=0.5
+
+######################
+## NN ARCHITECTURES ##
+######################
+
+def rnn_with_1_lstm(tf_input):
+    rnn_cell=tf.contrib.rnn.BasicLSTMCell(num_units=hidden_state_size)
+    outputs, (h_c, h_n) = tf.nn.dynamic_rnn(rnn_cell, tf_input, dtype=tf.float32, time_major=True)
+    output=tf.layers.dense(outputs[-1,:,:], output_size)
+    return output
+
+def rnn_with_2_lstm(tf_input):
+    rnn_cells=tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(num_units=n) for n in hidden_states_sizes])
+    outputs, (h_c, h_n) = tf.nn.dynamic_rnn(rnn_cells, tf_input, dtype=tf.float32, time_major=True)
+    output=tf.layers.dense(outputs[-1,:,:], output_size)
+    return output
+
+def bidirectional_rnn_with_2_lstm(tf_input):
+    rnn_cells_fw=tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(num_units=n) for n in hidden_states_sizes])
+    rnn_cells_bw=tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(num_units=n) for n in hidden_states_sizes])
+    (_,outputs), (h_c, h_n) = tf.nn.bidirectional_dynamic_rnn(rnn_cells_fw, rnn_cells_bw, tf_input, dtype=tf.float32, time_major=True)
+    output=tf.layers.dense(outputs[-1,:,:], output_size)
+    return output
 
 ############
 ### MAIN ###
@@ -25,9 +49,9 @@ tf.reset_default_graph()
 tf_input=tf.placeholder(shape=[None,None,input_size], dtype=tf.float32, name='tf_input')
 tf_output=tf.placeholder(shape=[None,output_size], dtype=tf.float32, name='tf_output')
 
-rnn_cell=tf.contrib.rnn.BasicLSTMCell(num_units=64)
-outputs, (h_c, h_n) = tf.nn.dynamic_rnn(rnn_cell, tf_input, initial_state=None, dtype=tf.float32, time_major=True)
-output=tf.layers.dense(outputs[-1,:,:], output_size)
+output=rnn_with_1_lstm(tf_input)
+#output=rnn_with_2_lstm(tf_input)
+#output=bidirectional_rnn_with_2_lstm(tf_input)
 
 loss = tf.losses.sigmoid_cross_entropy(multi_class_labels=tf_output, logits=output)
 train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
@@ -50,13 +74,12 @@ session.run(init_op)
 
 # CREATING CLASSES
 
-
 dataset_manager=DatasetManager('./train.csv',file_format='csv', text_position=1, labels_first_position=2)
 dataset_manager.split_train_eval_dataset(evaluation_set_percentage = 20)
 tokenization_manager=TokenizationManager(tokenizer='gensim')
 vectorization_manager=VectorizationManager(vector_size=input_size)
-#vectorization_manager.set_socket_as_embeddings_source(host='localhost', port=1234, buf=1000000)
-vectorization_manager.set_file_as_embeddings_source('./embeddings.bin', binary_file=True)
+vectorization_manager.set_socket_as_embeddings_source(host='localhost', port=1234, buf=1000000)
+#vectorization_manager.set_file_as_embeddings_source('./embeddings.bin', binary_file=True)
 
 # TRAINING
 
@@ -111,4 +134,4 @@ recall_ = np.mean(recalls)
 print('')
 print('Precision (mean) ' + str(precision_) + ' Recall (mean) ' + str(recall_))
 
-#vectorization_manager.close_socket()
+vectorization_manager.close_socket()
