@@ -38,6 +38,18 @@ def bidirectional_rnn_with_2_lstm(tf_input):
     output=tf.layers.dense(outputs[-1,:,:], output_size)
     return output
 
+def sigmoid_loss_optimizer_predictions(tf_output,output,op_predictions_name):
+    loss = tf.losses.sigmoid_cross_entropy(multi_class_labels=tf_output, logits=output)
+    train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+    op_predictions = tf.to_int32(tf.sigmoid(output), name=op_predictions_name)
+    return loss, train_op, op_predictions
+
+def argmax_loss_optimizer_predictions(tf_output,output,op_predictions_name):
+    loss = tf.losses.argmax_cross_entropy(multi_class_labels=tf_output, logits=output)
+    train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+    op_predictions = tf.argmax(output, name=op_predictions_name)
+    return loss, train_op, op_predictions
+
 ############
 ### MAIN ###
 ############
@@ -53,10 +65,9 @@ output=rnn_with_1_lstm(tf_input)
 #output=rnn_with_2_lstm(tf_input)
 #output=bidirectional_rnn_with_2_lstm(tf_input)
 
-loss = tf.losses.sigmoid_cross_entropy(multi_class_labels=tf_output, logits=output)
-train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+loss, train_op, op_predictions = sigmoid_loss_optimizer_predictions(tf_output,output,'op_predictions')
+#loss, train_op, op_predictions = argmax_loss_optimizer_predictions(tf_output,output,'op_predictions')
 
-op_predictions = tf.to_int32(tf.sigmoid(output), name='op_predictions')
 accuracy = tf.metrics.accuracy(labels=tf_output, predictions=op_predictions)
 precision = tf.metrics.precision(labels=tf_output, predictions=op_predictions)
 recall = tf.metrics.recall(labels=tf_output, predictions=op_predictions)
